@@ -5,9 +5,9 @@ import re
 
 def parse_requirements(requirements_file):
     """
-    Analyse le fichier requirements.txt et groupe les paquets par compatibilité avec la version de Python.
+    Parses the requirements.txt file and groups packages by Python version compatibility.
     """
-    print(f"Analyse du fichier de dépendances '{requirements_file}'...")
+    print(f"Analyzing the dependency file '{requirements_file}'...")
     packages = {}
     with open(requirements_file, 'r') as f:
         for line in f:
@@ -16,7 +16,7 @@ def parse_requirements(requirements_file):
                 continue
             if ';' in line:
                 package_spec, condition = line.split(';')
-                package_name = package_spec.strip().split('==')[0]  # Ignore la spécification de version
+                package_name = package_spec.strip().split('==')[0]  # Ignore version specification
                 condition = condition.strip()
                 if 'python_version' in condition:
                     version_match = re.search(r'python_version\s*([!=<>]+)\s*([\'"]?)([\d\.]+)\2', condition)
@@ -24,33 +24,33 @@ def parse_requirements(requirements_file):
                         operator = version_match.group(1)
                         version = version_match.group(3)
                         if operator == '==':
-                            print(f"Le paquet '{package_name}' est pour Python {version}.")
+                            print(f"Package '{package_name}' is for Python {version}.")
                             packages.setdefault(version, set()).add(package_name)
                         else:
-                            print(f"Le paquet '{package_name}' a un opérateur '{operator}' non supporté, ignoré.")
+                            print(f"Package '{package_name}' has an unsupported operator '{operator}', ignored.")
                     else:
-                        print(f"Impossible d'analyser la condition '{condition}' pour le paquet '{package_name}', ignoré.")
+                        print(f"Unable to parse condition '{condition}' for package '{package_name}', ignored.")
                 else:
-                    print(f"Le paquet '{package_name}' a une condition non supportée '{condition}', ignoré.")
+                    print(f"Package '{package_name}' has an unsupported condition '{condition}', ignored.")
             else:
-                # Ignore les spécifications de version pour prendre la dernière version disponible
+                # Ignore version specifications to take the latest available version
                 package_name = line.split('==')[0]
                 for version in target_versions:
                     packages.setdefault(version, set()).add(package_name)
-                    print(f"Le paquet '{package_name}' ajouté pour Python {version}.")
-    print("Analyse terminée.")
+                    print(f"Package '{package_name}' added for Python {version}.")
+    print("Analysis completed.")
     return packages
 
 def download_packages(python_version, target_dir, package_list):
     """
-    Télécharge les dernières versions des paquets spécifiés pour une version de Python donnée et les stocke dans un répertoire cible.
+    Downloads the latest versions of the specified packages for a given Python version and stores them in a target directory.
     """
-    print(f"Préparation du téléchargement des paquets pour Python {python_version}...")
+    print(f"Preparing to download packages for Python {python_version}...")
     os.makedirs(target_dir, exist_ok=True)
 
     for package in package_list:
         try:
-            print(f"Téléchargement du paquet '{package}' pour Python {python_version}...")
+            print(f"Downloading package '{package}' for Python {python_version}...")
             subprocess.check_call([
                 'pip3', 'download',
                 package,
@@ -60,70 +60,72 @@ def download_packages(python_version, target_dir, package_list):
                 '--no-cache-dir',
                 '--only-binary=:all:',
             ])
-            print(f"Paquet '{package}' téléchargé avec succès pour Python {python_version}.")
+            print(f"Package '{package}' downloaded successfully for Python {python_version}.")
         except subprocess.CalledProcessError as e:
-            print(f"Erreur lors du téléchargement du paquet '{package}' pour Python {python_version}: {e}")
+            print(f"Error downloading package '{package}' for Python {python_version}: {e}")
 
-    print(f"Organisation des paquets téléchargés dans '{target_dir}'...")
+    print(f"Organizing downloaded packages in '{target_dir}'...")
     organize_downloaded_packages(target_dir)
-    print(f"Organisation terminée pour Python {python_version}.")
+    print(f"Organization completed for Python {python_version}.")
 
 def organize_downloaded_packages(target_dir):
+    """
+    Moves downloaded package files into subdirectories based on their package names.
+    """
+    # Regular expression to extract the package name
+    pattern = re.compile(r'^(?P<name>.+?)-\d')
 
-    # Expression régulière pour extraire le nom du package
-    pattern = re.compile(r'^(?P<nom>.+?)-\d')
-
-    # Parcourt tous les fichiers du répertoire cible
-    for fichier in os.listdir(target_dir):
-        chemin_fichier = os.path.join(target_dir, fichier)
-        # Vérifie si c'est un fichier .whl ou .tar.gz
-        if (fichier.endswith('.whl') or fichier.endswith('.tar.gz')) and os.path.isfile(chemin_fichier):
-            # Utilise l'expression régulière pour extraire le nom du package
-            match = pattern.match(fichier)
+    # Iterate over all files in the target directory
+    for file in os.listdir(target_dir):
+        file_path = os.path.join(target_dir, file)
+        # Check if it's a .whl or .tar.gz file
+        if (file.endswith('.whl') or file.endswith('.tar.gz')) and os.path.isfile(file_path):
+            # Use the regular expression to extract the package name
+            match = pattern.match(file)
             if match:
-                nom_package = match.group('nom')
-                # Remplace les underscores par des tirets
-                nom_dossier = nom_package.replace('_', '-')
-                # Crée le dossier s'il n'existe pas
-                chemin_dossier = os.path.join(target_dir, nom_dossier)
-                os.makedirs(chemin_dossier, exist_ok=True)
-                # Déplace le fichier dans le dossier correspondant
-                shutil.move(chemin_fichier, os.path.join(chemin_dossier, fichier))
+                package_name = match.group('name')
+                # Replace underscores with hyphens
+                folder_name = package_name.replace('_', '-')
+                # Create the folder if it doesn't exist
+                folder_path = os.path.join(target_dir, folder_name)
+                os.makedirs(folder_path, exist_ok=True)
+                # Move the file into the corresponding folder
+                shutil.move(file_path, os.path.join(folder_path, file))
             else:
-                print(f"Impossible d'extraire le nom du package pour le fichier : {fichier}")
+                print(f"Unable to extract package name for file: {file}")
         else:
-            pass  # Ignore les non-fichiers
+            pass  # Ignore non-files
 
 def parse_package_name(filename):
     """
-    Extrait le nom du paquet à partir du nom de fichier en utilisant des expressions régulières.
+    Extracts the package name from the filename using regular expressions.
     """
-    # Gère les fichiers wheel
+    # Handles wheel files
     wheel_match = re.match(r'([A-Za-z0-9_\-\.]+)-([\d\.\-]+)(?:-.*)?\.whl', filename)
     if wheel_match:
         package_name = wheel_match.group(1)
         return package_name.lower()
-    # Gère les distributions source
+    # Handles source distributions
     sdist_match = re.match(r'([A-Za-z0-9_\-\.]+)-([\d\.\-]+)\.(?:tar\.gz|zip|tar\.bz2|tar\.xz)', filename)
     if sdist_match:
         package_name = sdist_match.group(1)
         return package_name.lower()
     return None
 
-# Définit les versions cibles de Python
+# Defines the target Python versions
 target_versions = ['2.7', '3.6', '3.8', '3.9']
 
-print("Démarrage du script de téléchargement des paquets...")
+print("Starting the package download script...")
 
-# Analyse du fichier requirements.txt
+# Parse the requirements.txt file
 packages_by_version = parse_requirements('requirements.txt')
 
-# Téléchargement et organisation des paquets pour chaque version de Python
+# Download and organize packages for each Python version
 for version in target_versions:
     package_list = packages_by_version.get(version, set())
     if package_list:
         target_dir = f'./python{version.replace(".", "")}/'
-        print(f"Téléchargement des paquets pour Python {version}...")
+        print(f"Downloading packages for Python {version}...")
         download_packages(version, target_dir, package_list)
     else:
-        print(f"Aucun paquet à télécharger pour Python {version}.")
+        print(f"No packages to download for Python {version}.")
