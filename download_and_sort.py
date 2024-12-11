@@ -1,131 +1,90 @@
-import subprocess
 import os
-import shutil
+import subprocess
+import sys
 import re
 
-def parse_requirements(requirements_file):
-    """
-    Parses the requirements.txt file and groups packages by Python version compatibility.
-    """
-    print(f"Analyzing the dependency file '{requirements_file}'...")
-    packages = {}
-    with open(requirements_file, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            if ';' in line:
-                package_spec, condition = line.split(';')
-                package_name = package_spec.strip().split('==')[0]  # Ignore version specification
-                condition = condition.strip()
-                if 'python_version' in condition:
-                    version_match = re.search(r'python_version\s*([!=<>]+)\s*([\'"]?)([\d\.]+)\2', condition)
-                    if version_match:
-                        operator = version_match.group(1)
-                        version = version_match.group(3)
-                        if operator == '==':
-                            print(f"Package '{package_name}' is for Python {version}.")
-                            packages.setdefault(version, set()).add(package_name)
-                        else:
-                            print(f"Package '{package_name}' has an unsupported operator '{operator}', ignored.")
-                    else:
-                        print(f"Unable to parse condition '{condition}' for package '{package_name}', ignored.")
-                else:
-                    print(f"Package '{package_name}' has an unsupported condition '{condition}', ignored.")
-            else:
-                # Ignore version specifications to take the latest available version
-                package_name = line.split('==')[0]
-                for version in target_versions:
-                    packages.setdefault(version, set()).add(package_name)
-                    print(f"Package '{package_name}' added for Python {version}.")
-    print("Analysis completed.")
-    return packages
+# Check if requirements.txt exists
+if not os.path.isfile('requirements.txt'):
+    print("Le fichier requirements.txt est introuvable !")
+    sys.exit(1)
 
-def download_packages(python_version, target_dir, package_list):
-    """
-    Downloads the latest versions of the specified packages for a given Python version and stores them in a target directory.
-    """
-    print(f"Preparing to download packages for Python {python_version}...")
-    os.makedirs(target_dir, exist_ok=True)
+# List of targeted Python versions
+PYTHON_VERSIONS = ['27', '36', '38', '39']
 
-    for package in package_list:
+# Dictionary to map versions to their details
+PYTHON_DETAILS = {
+    '27': {'version': '2.7', 'abi': 'cp27mu', 'platform': 'manylinux1_x86_64'},
+    '36': {'version': '3.6', 'abi': 'cp36m', 'platform': 'manylinux1_x86_64'},
+    '38': {'version': '3.8', 'abi': 'cp38', 'platform': 'manylinux2014_x86_64'},
+    '39': {'version': '3.9', 'abi': 'cp39', 'platform': 'manylinux2014_x86_64'},
+}
+
+for version in PYTHON_VERSIONS:
+    # Create the target directory
+    dir_name = f'python{version}'
+    os.makedirs(dir_name, exist_ok=True)
+
+    if version not in PYTHON_DETAILS:
+        print(f"Version Python non prise en charge : {version}")
+        continue
+
+    details = PYTHON_DETAILS[version]
+    python_version = details['version']
+    abi = details['abi']
+    platform = details['platform']
+
+    print(f"\nTéléchargement des paquets pour Python {python_version}...")
+
+    # Read the requirements.txt file
+    with open('requirements.txt', 'r') as req_file:
+        packages = [line.strip() for line in req_file if line.strip() and not line.startswith('#')]
+
+    # Download main packages
+    for package in packages:
+        cmd = [
+            'python3', '-m', 'pip', 'download',
+            '--dest', dir_name,
+            '--python-version', python_version,
+            '--abi', abi,
+            '--implementation', 'cp',
+            '--platform', platform,
+            '--only-binary=:all:',
+            package
+        ]
+
         try:
-            print(f"Downloading package '{package}' for Python {python_version}...")
-            subprocess.check_call([
-                'pip3', 'download',
-                package,
-                '-d', target_dir,
-                '--no-deps',
-                '--python-version', python_version.replace('.', ''),
-                '--no-cache-dir',
-                '--only-binary=:all:',
-            ])
-            print(f"Package '{package}' downloaded successfully for Python {python_version}.")
-        except subprocess.CalledProcessError as e:
-            print(f"Error downloading package '{package}' for Python {python_version}: {e}")
+            result = subprocess.run(
+                cmd,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            if result.returncode != 0:
+                print(f"Impossible de télécharger {package} pour Python {python_version}.")
+                print(result.stderr)
+                continue
+        except Exception as e:
+            print(f"Erreur lors du téléchargement de {package} pour Python {python_version}: {e}")
+            continue
 
-    print(f"Organizing downloaded packages in '{target_dir}'...")
-    organize_downloaded_packages(target_dir)
-    print(f"Organization completed for Python {python_version}.")
+    # Organize packages like a pip mirror
+    print(f"Organisation des paquets dans le dossier {dir_name}...")
 
-def organize_downloaded_packages(target_dir):
-    """
-    Moves downloaded package files into subdirectories based on their package names.
-    """
-    # Regular expression to extract the package name
-    pattern = re.compile(r'^(?P<name>.+?)-\d')
+    package_files = [f for f in os.listdir(dir_name) if f.endswith(('.whl', '.tar.gz', '.zip'))]
 
-    # Iterate over all files in the target directory
-    for file in os.listdir(target_dir):
-        file_path = os.path.join(target_dir, file)
-        # Check if it's a .whl or .tar.gz file
-        if (file.endswith('.whl') or file.endswith('.tar.gz')) and os.path.isfile(file_path):
-            # Use the regular expression to extract the package name
-            match = pattern.match(file)
-            if match:
-                package_name = match.group('name')
-                # Replace underscores with hyphens
-                folder_name = package_name.replace('_', '-')
-                # Create the folder if it doesn't exist
-                folder_path = os.path.join(target_dir, folder_name)
-                os.makedirs(folder_path, exist_ok=True)
-                # Move the file into the corresponding folder
-                shutil.move(file_path, os.path.join(folder_path, file))
-            else:
-                print(f"Unable to extract package name for file: {file}")
-        else:
-            pass  # Ignore non-files
+    for pkg_file in package_files:
+        # Extract the package name
+        match = re.match(r'^([A-Za-z0-9_.]+)-.+\.(whl|tar\.gz|zip)$', pkg_file)
+        if match:
+            pkg_name = match.group(1).lower().replace('_', '-')
+            pkg_dir = os.path.join(dir_name, pkg_name)
+            os.makedirs(pkg_dir, exist_ok=True)
+            src_path = os.path.join(dir_name, pkg_file)
+            dest_path = os.path.join(pkg_dir, pkg_file)
+            if not os.path.exists(dest_path):
+                os.rename(src_path, dest_path)
 
-def parse_package_name(filename):
-    """
-    Extracts the package name from the filename using regular expressions.
-    """
-    # Handles wheel files
-    wheel_match = re.match(r'([A-Za-z0-9_\-\.]+)-([\d\.\-]+)(?:-.*)?\.whl', filename)
-    if wheel_match:
-        package_name = wheel_match.group(1)
-        return package_name.lower()
-    # Handles source distributions
-    sdist_match = re.match(r'([A-Za-z0-9_\-\.]+)-([\d\.\-]+)\.(?:tar\.gz|zip|tar\.bz2|tar\.xz)', filename)
-    if sdist_match:
-        package_name = sdist_match.group(1)
-        return package_name.lower()
-    return None
+    print(f"Téléchargement et organisation terminés pour Python {python_version}.")
 
-# Defines the target Python versions
-target_versions = ['2.7', '3.6', '3.8', '3.9']
-
-print("Starting the package download script...")
-
-# Parse the requirements.txt file
-packages_by_version = parse_requirements('requirements.txt')
-
-# Download and organize packages for each Python version
-for version in target_versions:
-    package_list = packages_by_version.get(version, set())
-    if package_list:
-        target_dir = f'./python{version.replace(".", "")}/'
-        print(f"Downloading packages for Python {version}...")
-        download_packages(version, target_dir, package_list)
-    else:
-        print(f"No packages to download for Python {version}.")
+print("\nTous les paquets ont été téléchargés et organisés avec succès.")
